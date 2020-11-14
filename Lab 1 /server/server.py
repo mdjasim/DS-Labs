@@ -17,13 +17,13 @@ import requests
 try:
     app = Bottle()
 
-    #board stores all message on the system 
+    # board stores all the messages on the system 
     board = {0 : "Welcome to Distributed Systems Course"} 
     
-    #global entry counter
+    # Global entry counter
     message_id = 0;
     
-    #Action constant
+    # Action constant
     ACTION_CONSTANT_ADD = 'ADD'
     ACTION_CONSTANT_MODIFY = 'MODIFY'
     ACTION_CONSTANT_DELETE = 'DELETE'
@@ -33,37 +33,37 @@ try:
     # Add, Modify and Delete
     # ------------------------------------------------------------------------------------------------------
     
-    #This functions will add an new element
+    # This function will add a new entry
     def add_new_element_to_store(entry_sequence, element, is_propagated_call=False):
         global board, message_id
         success = False
         try:
-           if entry_sequence not in board: #Entry only added if it is not in the board already
+           if entry_sequence not in board: # Entry only added if it is not in the board already
                 board[entry_sequence] = element
                 
-                #Updating global counter
+                # Updating global counter
                 message_id = entry_sequence
                 success = True
         except Exception as e:
             print e
         return success
-
+    # This function will modify an existing entry
     def modify_element_in_store(entry_sequence, modified_element, is_propagated_call = False):
         global board
         success = False
         try:
-            #Modify entry by given entry sequence on the board
+            # Modify entry by the given entry sequence on the board
             board[entry_sequence] = modified_element
             success = True
         except Exception as e:
             print e
         return success
-
+    # This function will delete an existing entry
     def delete_element_from_store(entry_sequence, is_propagated_call = False):
         global board
         success = False
         try:
-            #delete entry from the board
+            # Delete entry by the given entry sequence on the board
             del board[entry_sequence]
             success = True
         except Exception as e:
@@ -100,7 +100,7 @@ try:
             It is done by increasing global message_id by 1'''
             element_id = message_id + 1 
             
-            #Adding the entry to own board
+            # Adding the entry to own board
             add_new_element_to_store(element_id, new_entry)
             
             # Propagate action to all other nodes
@@ -118,10 +118,10 @@ try:
         entry = request.forms.get('entry')
         
         # Get the action from the HTTP body
-        #0 = modify, 1 = delete
+        # 0 = modify, 1 = delete
         delete_option = request.forms.get('delete')
         
-        #call either delete or modify based on delete_option value
+        # Call either delete or modify, based on the 'delete_option' value
         if delete_option == '0':
             modify_element_in_store(element_id, entry, False)
             propagate_action = ACTION_CONSTANT_MODIFY
@@ -137,13 +137,13 @@ try:
         thread.daemon = True
         thread.start()
     
-    #With this function we handle requests from other nodes like add modify or delete
+    # This function handles requests from other nodes: Add, Modify, or Delete
     @app.post('/propagate/<action>/<element_id:int>')
     def propagation_received(action, element_id):
-	    #get entry from http body
+	    # Get entry from http body
         entry = request.forms.get('entry')
         
-        # Handle actions add modify or delete
+        # Handle actions: Add, Modify, or Delete
         if action == ACTION_CONSTANT_ADD:
             add_new_element_to_store(element_id, entry, True)
         elif action == ACTION_CONSTANT_MODIFY:
