@@ -68,7 +68,8 @@ try:
     leader_rand = 0
     board = Board()
     rand_value = random.randint(1, 10000)
-
+    backup_entry = None
+    backup_path = None
     
     def start_leader_election(node_id):
         # Election orgnizer functions; Initiates the election with him own id
@@ -96,6 +97,10 @@ try:
                 print 'Non implemented feature!'
             if res.status_code == 200:
                 success = True
+        except requests.Timeout:
+            print 'Time out!'
+        except requests.ConnectionError: 
+            print 'Connection error!'
         except Exception as e:
             print e
         if not success:
@@ -189,6 +194,7 @@ try:
         return True
 
     def propagate_to_leader(action, id, payload=None):
+        global backup_entry, backup_path
         # Validate input
         if (id == None):
             return False
@@ -196,6 +202,8 @@ try:
         #Check if the leader is alive
         success = check_alive(leader_id)  
         if success is False:
+            backup_entry = payload
+            backup_path = get_path(action, id)
             print 'Leader dies, Starting reelection....'
             start_leader_election(node_id)
             return False
@@ -236,6 +244,26 @@ try:
             
             propagate_to_next_vessel_in_thread(
                 next_node_id, next_node_ip, path, payload)
+            return True
+
+        except Exception as e:
+            print(e)
+            return False
+    
+    def send_election_result_to_vessel(payload=None):
+        global vessel_list, node_id
+        path = '/leader-selected'
+
+        try:
+            # will send the propagation to same next node everytime
+            next_node_id = int(node_id) + 1
+            next_node_ip = vessel_list.get(str(next_node_id))
+
+            if (next_node_ip == None):
+                next_node_ip = vessel_list.get('1')
+                next_node_id = 1
+            
+            propagate_to_vessels_in_thread(path, payload)
             return True
 
         except Exception as e:
@@ -397,7 +425,7 @@ try:
     # Leader propagation received
     @app.post('/pick/leader/<sender_id>')
     def leader_propagation_received(sender_id):
-        global node_id, leader_id, leader_rand 
+        global node_id, leader_id, leader_rand,backup_entry, backup_path  
         max_value = None
         max_node_id = None
         try:
@@ -410,11 +438,21 @@ try:
             # Can't parse entry from response
             print e
             return format_response(400, 'Could not retrieve entry from json')
-
+        
+        print 'Leader propagation...'
         if (org_sender_id == node_id):# Got back to me; election done; new leader elected 
             leader_id = max_node_id
             leader_rand = max_value
             print ('Got the leader; Leader Id is: {}'.format(leader_id))
+            payload = {'max_value': max_value,
+                       'max_node_id': max_node_id}
+            send_election_result_to_vessel(payload) 
+            
+            if backup_entry is not None: 
+                print 'propagating backup entry'
+                propagate_to_leader_in_thread(backup_path, backup_entry) 
+                backup_path = None
+                backup_entry = None
             return format_response(200)
         else:
             if (rand_value > max_value):
@@ -428,7 +466,33 @@ try:
                        'max_node_id': max_node_id, 'org_sender_id': org_sender_id}
             send_election_call_to_next_vessel(sender_id, payload)
             return format_response(200)
+    
+    # Leader propagation received
+    @app.post('/leader-selected')
+    def leader_propagation_received():
+        global node_id, leader_id, leader_rand, backup_entry, backup_path 
+        max_value = None
+        max_node_id = None
+        try:
+            json_dict = request.json
+            max_value = json_dict.get('max_value')
+            max_node_id = json_dict.get('max_node_id')
 
+        except Exception as e:
+            # Can't parse entry from response
+            print e
+            return format_response(400, 'Could not retrieve entry from json')
+
+        leader_id = max_node_id
+        leader_rand = max_value
+        print ('Got the new leader!!!!! Leader Id is: {}'.format(leader_id))
+        if backup_entry is not None: 
+            print 'propagating backup entry'
+            propagate_to_leader_in_thread(backup_path, backup_entry)
+            
+        return format_response(200)
+        
+    
     def format_response(status_code, message=''):
         '''
         Simple function for formatting response code.
