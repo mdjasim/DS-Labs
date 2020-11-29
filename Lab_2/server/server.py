@@ -94,17 +94,48 @@ try:
                 print "REQ:"
                 print req
                 print 'Non implemented feature!'
-            # result is in res.text or res.json()
-            print(res.text)
             if res.status_code == 200:
                 success = True
         except Exception as e:
             print e
         if not success:
             print "\n\nCould not contact vessel {}\n\n".format(vessel_id)
-
+    
+    def contact_vessel_for_election(vessel_id, vessel_ip, path, payload=None, req='POST'):
+        # Try to contact another server (vessel) through a POST or GET, once
+        success = False
+        try:
+            if 'POST' in req:
+                res = requests.post(
+                    'http://{}{}'.format(vessel_ip, path), json=payload)
+            elif 'GET' in req:
+                res = requests.get('http://{}{}'.format(vessel_ip, path))
+            else:
+                print "REQ:"
+                print req
+                print 'Non implemented feature!'
+            if res.status_code == 200:
+                success = True
+        except requests.Timeout:
+            print 'Contact with imediate node time out!'
+        except requests.ConnectionError: # Handle the case if node crashed during election
+            print 'Connection error next node. Will try next next node!'
+            next_node_id = vessel_id+1
+            next_node_ip = vessel_list.get(str(next_node_id))
+            
+            if (next_node_ip == None):
+                next_node_ip = vessel_list.get('1')
+                next_node_id = 1
+            
+            propagate_to_next_vessel_in_thread(
+                next_node_id, next_node_ip, path, payload)
+        except Exception as e:
+            print e
+        if not success:
+            print "\n\nCould not contact vessel {}\n\n".format(vessel_id)
+    
     def propagate_to_next_vessel_in_thread(next_node_id, next_node_ip, path, payload=None, req='POST'):
-        t = Thread(target=contact_vessel, args=(
+        t = Thread(target=contact_vessel_for_election, args=(
             next_node_id, next_node_ip, path, payload, req))
         t.daemon = True
         t.start()
@@ -161,14 +192,35 @@ try:
         # Validate input
         if (id == None):
             return False
-
+        
+        #Check if the leader is alive
+        success = check_alive(leader_id)  
+        if success is False:
+            print 'Leader dies, Starting reelection....'
+            start_leader_election(node_id)
+            return False
+        
         # Check action
         path = get_path(action, id)
 
         # Propagate to all vessels in a thread for each request.
         propagate_to_leader_in_thread(path, payload)
         return True
-
+    
+    def check_alive(node_id):
+        success = False
+        try:
+            res = requests.get('http://{}{}'.format(vessel_list.get(str(node_id)), '/server-status'))
+            if res.status_code == 200:
+                success = True
+        except requests.Timeout:
+            print 'Server time out!'
+        except requests.ConnectionError:
+            print 'Connection error!'
+        except Exception as e:
+            print e
+        return success
+    
     def send_election_call_to_next_vessel(sender_id, payload=None):
         global vessel_list, node_id
         path = '/pick/leader/{}'.format(node_id)
@@ -181,7 +233,7 @@ try:
             if (next_node_ip == None):
                 next_node_ip = vessel_list.get('1')
                 next_node_id = 1
-
+            
             propagate_to_next_vessel_in_thread(
                 next_node_id, next_node_ip, path, payload)
             return True
@@ -207,7 +259,16 @@ try:
         entries = board.getEntries()
         return template('server/boardcontents_template.tpl', board_title='Vessel {}'.format(node_id), board_dict=sorted(entries.iteritems()))
     # ------------------------------------------------------------------------------------------------------
+    
+    @app.get('/server-status')
+    def get_status():
+        try:
+            return format_response(200)
+        except Exception as e:
+            print e
+        return format_response(400)
 
+    
     @app.post('/board')
     def client_add_received():
         '''Adds a new element to the board
