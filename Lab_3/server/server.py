@@ -21,6 +21,8 @@ OK = 200
 BAD_REQUEST = 400
 INTERNAL_SERVER_ERROR = 500
 
+ACTION_ADD = 'add'
+
 class Entry(object):
     def __init__(self, action, sequence_number, node_id, time, entry = None, status= None):
 
@@ -76,7 +78,7 @@ try:
 
                     #We also want to make sure to change the entry information stored in the entrys_in_board dict when then new
                     #entry took the spot. 
-                    entrys_in_board[int(entry_sequence)] = Entry("add", entry_sequence, from_node, time_stamp, element)
+                    entrys_in_board[int(entry_sequence)] = Entry(ACTION_ADD, entry_sequence, from_node, time_stamp, element)
 
                     return
 
@@ -88,7 +90,7 @@ try:
             board[int(entry_sequence)] = element
             #We also wan´t to make sure to save the new entry as an Entry object in the dict so we can find
             #the information of the entry later on.
-            entrys_in_board[int(entry_sequence)] = Entry("add", entry_sequence, from_node, time_stamp, element)
+            entrys_in_board[int(entry_sequence)] = Entry(ACTION_ADD, entry_sequence, from_node, time_stamp, element)
             success = True
             sequence_number += 1
 
@@ -205,10 +207,9 @@ try:
             new_entry = request.forms.get('entry')
             time_stamp = datetime.now()
 
-            propagate_to_all_vessels("/propagate/add/{}/{}".format(sequence_number, node_id), {"entry": new_entry, "time": time_stamp })
-            handle_action_recieved("add", sequence_number, node_id, new_entry, time_stamp)
+            propagate_to_all_vessels("/propagate/{}/{}/{}".format(ACTION_ADD,sequence_number, node_id), {"entry": new_entry, "time": time_stamp })
+            handle_action_recieved(ACTION_ADD, sequence_number, node_id, new_entry, time_stamp)
             
-            return True
         except Exception as e:
             print e
         return False
@@ -235,7 +236,6 @@ try:
                 propagate_to_all_vessels("/propagate/modify/{}/{}".format(element_id, node), {"entry": entry, "time": time_stamp, "time_stamp" : mod_time})
                 handle_action_recieved("modify", element_id, node, entry, time_stamp, mod_time)
                 
-            return True
         except Exception as e:
             print e
         return False
@@ -270,7 +270,7 @@ try:
                             if entry.action == 'remove':
                                 modify_remove_requests.remove(entry)
                                 print modify_remove_requests
-                                entrys_in_board[int(entry.sequence_number)] = Entry("add", entry.sequence_number, entry.node_id, time_stamp, entry_msg, "removed")
+                                entrys_in_board[int(entry.sequence_number)] = Entry(ACTION_ADD, entry.sequence_number, entry.node_id, time_stamp, entry_msg, "removed")
                                 print "removed new entry"
                                 return
 
