@@ -252,7 +252,7 @@ try:
         try:
 
             if action == ACTION_ADD:
-                #First we need to check if there is old modify/delete requests waiting for the new add request. 
+                #If there is already a modify or remove request for the add request, we need to handle that first
                 if modify_remove_requests:
                     for entry in modify_remove_requests:
                         if str(entry.time) == str(time_stamp) and int(entry.node_id) == int(node_id):
@@ -260,39 +260,24 @@ try:
                                 modify_remove_requests.remove(entry)
                                 print modify_remove_requests
                                 entrys_in_board[int(entry.sequence_number)] = Entry(ACTION_ADD, entry.sequence_number, entry.node_id, time_stamp, entry_msg, "removed")
-                                print "removed new entry"
                                 return
 
                             elif entry.action == ACTION_MODIFY:
                                 add_new_element_to_board(element_id, entry.entry, node_id, time_stamp)
-                                print "added modified entry"
                                 return
 
-                #If no request was concerning the new or there where no old requests we can just try add the new entry.
+                #Otherwise just add new entry to the board
                 add_new_element_to_board( int(element_id), entry_msg, node_id, time_stamp, True)
 
-            #In the case where we got remove/modify request but there is no matching entry in board, we will add
-            #the request to the waiting list. 
             elif (action == ACTION_REMOVE or action == ACTION_MODIFY):
-
-                print node_id
-                print time_stamp
                 for entries in entrys_in_board.values():
-
-                    print entries.node_id
-                    print entries.time
                     if int(entries.node_id) == int(node_id) and str(entries.time) == str(time_stamp): 
-
-                        print "found a match"
-
                         if action == ACTION_REMOVE and not entries.status == "removed":
                             delete_element_from_store(entries.sequence_number, True)
                             return
 
                         elif action == ACTION_MODIFY and not entries.status == "removed":
-                            mod_time = datetime.strptime(str(mod_time), '%Y-%m-%d %H:%M:%S.%f')
-                            #entry_time = datetime.strptime(str(entries.mod_time), '%Y-%m-%d %H:%M:%S.%f')
-
+                            mod_time = datetime.strptime(str(mod_time), '%Y-%m-%d %H:%M:%S.%f')                           
                             if entries.mod_time < mod_time:
                                 modify_element_in_store(entries.sequence_number, entry_msg, True)
                                 entrys_in_board[int(entries.sequence_number)].mod_time = mod_time
@@ -301,7 +286,7 @@ try:
 
                         return
 
-                print "Sequence_number is not in board"
+                #Loggin the remove or modify request
                 modify_remove_requests.append(Entry(action, element_id, node_id, time_stamp, entry_msg))
             
             return "Success"
