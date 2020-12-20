@@ -17,11 +17,9 @@ from datetime import datetime
 from bottle import Bottle, run, request, template
 import requests
 
-OK = 200
-BAD_REQUEST = 400
-INTERNAL_SERVER_ERROR = 500
-
 ACTION_ADD = 'add'
+ACTION_MODIFY = 'modify'
+ACTION_REMOVE = 'remove'
 
 class Entry(object):
     def __init__(self, action, sequence_number, node_id, time, entry = None, status= None):
@@ -32,9 +30,8 @@ class Entry(object):
         self.node_id = node_id
         self.time = time
         self.status = status
-
-        #The time_stamp for when it got the latest modify request. 
-        self.mod_time = datetime(2000, 1, 1)
+ 
+        self.mod_time = datetime(1900, 1, 1)
 
         return
 
@@ -42,9 +39,9 @@ class Entry(object):
 try:
     app = Bottle()
 
-    board = {} 
-    entrys_in_board = {}            #Stores all entrys in board with more information in the form of an Entry object. 
-    modify_remove_requests = []     #Stores modify/remove actions for entries that haven´t arrived. 
+    board = {}                      #Board object which mainly used to display
+    entrys_in_board = {}            #Entry details with time stamp 
+    modify_remove_requests = []     #Action logs for the entry which are yet to come; For example remove request came before add request 
 
     sequence_number = 1           
     node_id = None
@@ -54,48 +51,40 @@ try:
     # ------------------------------------------------------------------------------------------------------
     # BOARD FUNCTIONS
     # ------------------------------------------------------------------------------------------------------
-    def add_new_element_to_store(entry_sequence, element, from_node, time_stamp, is_propagated_call=False):
+    def add_new_element_to_board(entry_sequence, element, from_node, time_stamp, is_propagated_call=False):
         global board, sequence_number, entrys_in_board
         success = False
         try:
 
-            #In the case where there already has an entry at the sequence number, we will compare the two time_stamps for 
-            #when the entry was first recieved. In the case where the new entry actuallly should be in front of the old one
-            #we try adding the old element at the next spot using add_new_element_to_store. Then we modify the entry at the
-            #sequence number to the new value. In the case where the next spot also is occupied the function might call
-            #itself a few times until the last value have found a new spot last in the board.  
+            # Checking if there is any entry with same seqeunce  
             if int(entry_sequence) in board.keys():
 
                 old_entry = entrys_in_board[int(entry_sequence)]
                 date_new = datetime.strptime(str(time_stamp), '%Y-%m-%d %H:%M:%S.%f')
                 date_old = datetime.strptime(str(old_entry.time), '%Y-%m-%d %H:%M:%S.%f')
 
-                #in the case where the new element actually is older
+                # Checking if the incoming entry has older time stamp
                 if date_new < date_old or (date_old == date_new and from_node < old_entry.node_id):
 
-                    add_new_element_to_store(int(entry_sequence)+1, old_entry.entry, old_entry.node_id, old_entry.time, True)
+                    add_new_element_to_board(int(entry_sequence)+1, old_entry.entry, old_entry.node_id, old_entry.time, True)
                     modify_element_in_store(int(entry_sequence), element, date_new)
 
-                    #We also want to make sure to change the entry information stored in the entrys_in_board dict when then new
-                    #entry took the spot. 
+                    #Storing new element in form of Entry object with details data like timestamp
                     entrys_in_board[int(entry_sequence)] = Entry(ACTION_ADD, entry_sequence, from_node, time_stamp, element)
 
                     return
 
                 else:
-                    add_new_element_to_store(int(entry_sequence)+1, element, from_node, time_stamp, True)
+                    add_new_element_to_board(int(entry_sequence)+1, element, from_node, time_stamp, True)
                     return
 
-            #Lastsly if there is no entry at the given entry_sequence we can just add the new entry. 
+            #If no entry with same entry sequence simply add entry to board 
             board[int(entry_sequence)] = element
-            #We also wan´t to make sure to save the new entry as an Entry object in the dict so we can find
-            #the information of the entry later on.
+            
+            #Storing new element in form of Entry object with details data like timestamp
             entrys_in_board[int(entry_sequence)] = Entry(ACTION_ADD, entry_sequence, from_node, time_stamp, element)
             success = True
             sequence_number += 1
-
-            print board
-
         except Exception as e:
             print e
         return success
@@ -228,13 +217,13 @@ try:
 
             if action == "1":
 
-                propagate_to_all_vessels("/propagate/remove/{}/{}".format(element_id, node), {"time": time_stamp})
-                handle_action_recieved("remove", element_id, node, entry, time_stamp)
+                propagate_to_all_vessels("/propagate/{}/{}/{}".format(ACTION_REMOVE,element_id, node), {"time": time_stamp})
+                handle_action_recieved(ACTION_REMOVE, element_id, node, entry, time_stamp)
 
             else:
                 mod_time = datetime.now()
-                propagate_to_all_vessels("/propagate/modify/{}/{}".format(element_id, node), {"entry": entry, "time": time_stamp, "time_stamp" : mod_time})
-                handle_action_recieved("modify", element_id, node, entry, time_stamp, mod_time)
+                propagate_to_all_vessels("/propagate/{}/{}/{}".format(ACTION_MODIFY,element_id, node), {"entry": entry, "time": time_stamp, "time_stamp" : mod_time})
+                handle_action_recieved(ACTION_MODIFY, element_id, node, entry, time_stamp, mod_time)
                 
         except Exception as e:
             print e
@@ -248,7 +237,7 @@ try:
             time = request.forms.get("time")
             mod_time = False
 
-            if action == "modify":
+            if action == ACTION_MODIFY:
                 mod_time = request.forms.get("time_stamp")
 
             handle_action_recieved(action, element_id, node_id, entry_msg, time, mod_time)
@@ -262,29 +251,29 @@ try:
         global  modify_remove_requests, board, entrys_in_board
         try:
 
-            if action == "add":
+            if action == ACTION_ADD:
                 #First we need to check if there is old modify/delete requests waiting for the new add request. 
                 if modify_remove_requests:
                     for entry in modify_remove_requests:
                         if str(entry.time) == str(time_stamp) and int(entry.node_id) == int(node_id):
-                            if entry.action == 'remove':
+                            if entry.action == ACTION_REMOVE:
                                 modify_remove_requests.remove(entry)
                                 print modify_remove_requests
                                 entrys_in_board[int(entry.sequence_number)] = Entry(ACTION_ADD, entry.sequence_number, entry.node_id, time_stamp, entry_msg, "removed")
                                 print "removed new entry"
                                 return
 
-                            elif entry.action == 'modify':
-                                add_new_element_to_store(element_id, entry.entry, node_id, time_stamp)
+                            elif entry.action == ACTION_MODIFY:
+                                add_new_element_to_board(element_id, entry.entry, node_id, time_stamp)
                                 print "added modified entry"
                                 return
 
                 #If no request was concerning the new or there where no old requests we can just try add the new entry.
-                add_new_element_to_store( int(element_id), entry_msg, node_id, time_stamp, True)
+                add_new_element_to_board( int(element_id), entry_msg, node_id, time_stamp, True)
 
             #In the case where we got remove/modify request but there is no matching entry in board, we will add
             #the request to the waiting list. 
-            elif (action == "remove" or action == "modify"):
+            elif (action == ACTION_REMOVE or action == ACTION_MODIFY):
 
                 print node_id
                 print time_stamp
@@ -296,11 +285,11 @@ try:
 
                         print "found a match"
 
-                        if action == "remove" and not entries.status == "removed":
+                        if action == ACTION_REMOVE and not entries.status == "removed":
                             delete_element_from_store(entries.sequence_number, True)
                             return
 
-                        elif action == "modify" and not entries.status == "removed":
+                        elif action == ACTION_MODIFY and not entries.status == "removed":
                             mod_time = datetime.strptime(str(mod_time), '%Y-%m-%d %H:%M:%S.%f')
                             #entry_time = datetime.strptime(str(entries.mod_time), '%Y-%m-%d %H:%M:%S.%f')
 
