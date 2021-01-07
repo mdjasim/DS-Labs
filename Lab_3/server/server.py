@@ -39,8 +39,8 @@ class Entry(object):
 try:
     app = Bottle()
 
-    board = {}                      #Board object which mainly used to display
-    entrys_in_board = {}            #Entry details with time stamp 
+    board = {}                      #Board object which is mainly used to display board content
+    entries_in_board = {}           #Entry details with time stamps 
     modify_remove_requests = []     #Action logs for the entry which are yet to come; For example remove request came before add request 
 
     sequence_number = 1           
@@ -52,14 +52,14 @@ try:
     # BOARD FUNCTIONS
     # ------------------------------------------------------------------------------------------------------
     def add_new_element_to_board(entry_sequence, element, from_node, time_stamp, is_propagated_call=False):
-        global board, sequence_number, entrys_in_board
+        global board, sequence_number, entries_in_board
         success = False
         try:
 
             # Checking if there is any entry with same seqeunce  
             if int(entry_sequence) in board.keys():
 
-                old_entry = entrys_in_board[int(entry_sequence)]
+                old_entry = entries_in_board[int(entry_sequence)]
                 date_new = datetime.strptime(str(time_stamp), '%Y-%m-%d %H:%M:%S.%f')
                 date_old = datetime.strptime(str(old_entry.time), '%Y-%m-%d %H:%M:%S.%f')
 
@@ -70,7 +70,7 @@ try:
                     modify_element_in_store(int(entry_sequence), element, date_new)
 
                     #Storing new element in form of Entry object with details data like timestamp
-                    entrys_in_board[int(entry_sequence)] = Entry(ACTION_ADD, entry_sequence, from_node, time_stamp, element)
+                    entries_in_board[int(entry_sequence)] = Entry(ACTION_ADD, entry_sequence, from_node, time_stamp, element)
 
                     return
 
@@ -82,7 +82,7 @@ try:
             board[int(entry_sequence)] = element
             
             #Storing new element in form of Entry object with details data like timestamp
-            entrys_in_board[int(entry_sequence)] = Entry(ACTION_ADD, entry_sequence, from_node, time_stamp, element)
+            entries_in_board[int(entry_sequence)] = Entry(ACTION_ADD, entry_sequence, from_node, time_stamp, element)
             success = True
             sequence_number += 1
         except Exception as e:
@@ -104,7 +104,7 @@ try:
         return success
 
     def delete_element_from_store(entry_sequence, is_propagated_call = False):
-        global board, entrys_in_board
+        global board, entries_in_board
         success = False
 
         try:
@@ -114,7 +114,7 @@ try:
         except Exception as e:
             print e
 
-        entrys_in_board[int(entry_sequence)].status = "removed"
+        entries_in_board[int(entry_sequence)].status = "removed"
         return success
 
  
@@ -206,14 +206,14 @@ try:
 
     @app.post('/board/<element_id:int>/')
     def client_action_received(element_id):
-        global board, entrys_in_board
+        global board, entries_in_board
         try:
 
             print "Recieved action!"
             action = request.forms.get("delete")
             entry = request.forms.get('entry')
-            time_stamp = entrys_in_board.get(element_id).time
-            node = entrys_in_board.get(element_id).node_id
+            time_stamp = entries_in_board.get(element_id).time
+            node = entries_in_board.get(element_id).node_id
 
             if action == "1":
 
@@ -248,7 +248,7 @@ try:
         return "Internal Error"
 
     def handle_action_recieved(action, element_id, node_id, entry_msg, time_stamp, mod_time = False):
-        global  modify_remove_requests, board, entrys_in_board
+        global  modify_remove_requests, board, entries_in_board
         try:
 
             if action == ACTION_ADD:
@@ -259,7 +259,7 @@ try:
                             if entry.action == ACTION_REMOVE:
                                 modify_remove_requests.remove(entry)
                                 print modify_remove_requests
-                                entrys_in_board[int(entry.sequence_number)] = Entry(ACTION_ADD, entry.sequence_number, entry.node_id, time_stamp, entry_msg, "removed")
+                                entries_in_board[int(entry.sequence_number)] = Entry(ACTION_ADD, entry.sequence_number, entry.node_id, time_stamp, entry_msg, "removed")
                                 return
 
                             elif entry.action == ACTION_MODIFY:
@@ -270,7 +270,7 @@ try:
                 add_new_element_to_board( int(element_id), entry_msg, node_id, time_stamp, True)
 
             elif (action == ACTION_REMOVE or action == ACTION_MODIFY):
-                for entries in entrys_in_board.values():
+                for entries in entries_in_board.values():
                     if int(entries.node_id) == int(node_id) and str(entries.time) == str(time_stamp): 
                         if action == ACTION_REMOVE and not entries.status == "removed":
                             delete_element_from_store(entries.sequence_number, True)
@@ -280,8 +280,8 @@ try:
                             mod_time = datetime.strptime(str(mod_time), '%Y-%m-%d %H:%M:%S.%f')                           
                             if entries.mod_time < mod_time:
                                 modify_element_in_store(entries.sequence_number, entry_msg, True)
-                                entrys_in_board[int(entries.sequence_number)].mod_time = mod_time
-                                entrys_in_board[int(entries.sequence_number)].entry = entry_msg
+                                entries_in_board[int(entries.sequence_number)].mod_time = mod_time
+                                entries_in_board[int(entries.sequence_number)].entry = entry_msg
                                 return
 
                         return
