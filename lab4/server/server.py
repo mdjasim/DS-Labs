@@ -5,6 +5,9 @@
 # Input: Total number of servers; --servers = 4
 # Students: Jasim & Saif
 # ------------------------------------------------------------------------------------------------------
+from bottle import Bottle, run, request, template, HTTPResponse
+import requests
+
 import traceback
 import sys
 import time
@@ -12,9 +15,6 @@ import json
 import argparse
 import byzantine_behavior
 from threading import Thread
-
-from bottle import Bottle, run, request, template, HTTPResponse
-import requests
 # ------------------------------------------------------------------------------------------------------
 try:
     # ------------------------------------------------------------------------------------------------------
@@ -28,7 +28,7 @@ try:
     # ------------------------------------------------------------------------------------------------------
     # LOCAL STATE - VOTES AND VECTORS 
     # ------------------------------------------------------------------------------------------------------
-    tot_nodes = 4 # Default node number; will be override by value given with start arugument
+    number_of_nodes = None # Total number of nodes. will be override by value given with start arugument
     votes = {}  # Own view about the votes; It is populated during step 1
     result_vectors = {}  # Vector collections other node's votes including Byzatine node
     concensus = None
@@ -39,54 +39,48 @@ try:
     # ------------------------------------------------------------------------------------------------------
     # VOTES AND AGREEMENT LOGIC
     # ------------------------------------------------------------------------------------------------------    
-    def get_result_vector():
+    def prepare_final_result_vector():
         result_vector = []
         attack = None
         retreat = None
         print votes
-        # Loop over each position in each node vector.
-        for i in range(1, tot_nodes + 1):
-            # Count for each position in the final vector, need to reset for each position
+        # Calculating votes for each column in the result vectors;
+        for i in range(1, number_of_nodes + 1):
+            # The count will be reset for new column
             attack = 0
             retreat = 0
-            for k, val in result_vectors.iteritems():
-                print k
-                print val
-                # If we are looking to decide for a node, ignore what that node said about themselves and pick the value we received
-                if int(k) == i:
+            for j, vec in result_vectors.iteritems():
+                # First we are checking what we have got from the selected node; This is the votes we got in the first round
+                # For example while we are in process node 2 we will give priority to vote we got from node 2
+                # So we will take value from 'votes' dictionary instead of result vector
+                if int(j) == i:
                     if votes.get(str(i)) == ATTACK:
                         attack += 1
                     if votes.get(str(i)) == RETREAT:
                         retreat += 1
                 else:  
-                # We're not a node talking about himself or herself. 
-                    if val.get(str(i)) == ATTACK:
+                # Here will take from result vector when we are processing for other node.
+                # For example when we are processing node 3 (i.e. i = 3) and for value j = 2 we need to get votes from result vector 
+                    if vec.get(str(i)) == ATTACK:
                         attack += 1
-                    if val.get(str(i)) == RETREAT:
+                    if vec.get(str(i)) == RETREAT:
                         retreat += 1
             
-            #if votes.get(str(i)) == ATTACK:
-            #   attack += 1
-            #if votes.get(str(i)) == RETREAT:
-            #    retreat += 1
-            
-            # Determine result for each position in the vector.
-            print attack
-            print retreat
+            # Generating result vector for current node.
             if attack >= retreat:
                 result_vector.append(ATTACK)
             else:
                 result_vector.append(RETREAT)
-            #else: 
-            #    result_vector.append(status.get(str(i)))
         return result_vector
 
-    def determine_result():
-        result_vector = get_result_vector()
-        result = None
+    # Here we determine whats the concensus and the final votes vector
+    # It returns two value. Final agreement as 'concensus' and votes as 'final_result_vectors'
+    def make_concensus():
+        final_result_vectors = prepare_final_result_vector()
+        concensus = None
         attack = 0
         retreat = 0
-        for v in result_vector:
+        for v in final_result_vectors:
             if v == ATTACK:
                 attack += 1
             else:
@@ -94,12 +88,13 @@ try:
 
         # Decide final winner.
         if attack >= retreat:
-            result = ATTACK
+            concensus = ATTACK
         else:
-            result = RETREAT
-        return result, result_vector
+            concensus = RETREAT
+        return concensus, final_result_vectors
 
-    def dict_from_arr(arr):
+    # Converting bolean values to a vote dictionary got from Byzantine behavior fro round two
+    def convert_to_dictionary(arr):
         i = 0
         byzantine_dict = {}
         for vessel_id, vessel_ip in vessel_list.items():
@@ -107,13 +102,13 @@ try:
             i += 1
         return byzantine_dict
 
-    def check_for_step_two():
+    # Check if all the votes came is then perfor the byzantine step two
+    def perform_byzantine_step_two():
         global node_id
-        if byzantine and len(votes) == tot_nodes:
-            res = byzantine_behavior.compute_byzantine_vote_round2(tot_nodes - 1, tot_nodes, True)
-            print res
+        if byzantine and len(votes) == number_of_nodes:
+            res = byzantine_behavior.compute_byzantine_vote_round2(number_of_nodes - 1, number_of_nodes, True)
             propogate_byzantine_step_two(res, node_id)
-        if len(votes) == tot_nodes and not byzantine:
+        if len(votes) == number_of_nodes and not byzantine:
             propogate_result(node_id)
                 
     
@@ -132,8 +127,6 @@ try:
                 res = requests.get('http://{}{}'.format(vessel_ip, path))
             else:
                 print 'Non implemented feature!'
-            # result is in res.text or res.json()
-            print(res.text)
             if res.status_code == 200:
                 success = True
         except Exception as e:
@@ -144,8 +137,7 @@ try:
         global vessel_list, node_id
 
         for vessel_id, vessel_ip in vessel_list.items():
-            if int(vessel_id) != node_id:  # don't propagate to yourself
-                # Start a thread for each propagation
+            if int(vessel_id) != node_id: # Ignoring myself
                 t = Thread(target=contact_vessel, args=(
                         vessel_ip, path, payload, req))
                 t.daemon = True
@@ -168,14 +160,8 @@ try:
 
     def propogate_byzantine_step_one(arr, node_id):
         i = 0
-        print 'vessel list'
-        print vessel_list
         for vessel_id, vessel_ip in vessel_list.items():
-            if int(vessel_id) != node_id:  # don't propagate to yourself
-                # Start a thread for each propagation
-                print 'byzantine value'
-                print convert_to_attack_or_retreat(arr[i])
-                print vessel_id
+            if int(vessel_id) != node_id:  # Ignoring myself
                 path = "/propagate/{}/{}".format(convert_to_attack_or_retreat(arr[i]), node_id)  
                 t = Thread(target=contact_vessel, args=(
                         vessel_ip, path))
@@ -187,7 +173,7 @@ try:
         i = 0
         for vessel_id, vessel_ip in vessel_list.items():
             if int(vessel_id) != node_id:
-                byzantine_dict = dict_from_arr(arr_of_arr[i]) 
+                byzantine_dict = convert_to_dictionary(arr_of_arr[i]) 
                 payload = {'status': byzantine_dict}
                 
                 path = "/propagate/result/{}".format(node_id)
@@ -201,7 +187,7 @@ try:
     # ------------------------------------------------------------------------------------------------------
     # ROUTES
     # ------------------------------------------------------------------------------------------------------
-    # a single example (index) should be done for get, and one for post
+    # Routes methods and implementation of voting interface
     # ------------------------------------------------------------------------------------------------------
 
     @app.route('/')
@@ -213,9 +199,9 @@ try:
     def get_result():
         global node_id, concensus, final_votes
         # Have received all other nodes vectors
-        if len(result_vectors) == tot_nodes - 1:
+        if len(result_vectors) == number_of_nodes - 1:
             if concensus == None and final_votes == None:
-               concensus, final_votes = determine_result()
+               concensus, final_votes = make_concensus()
             return template('server/result_template.tpl', result=concensus, result_vector=final_votes)
         pass
 
@@ -224,7 +210,7 @@ try:
         global node_id
         propogate_client_vote(ATTACK, node_id)
         votes[node_id] = ATTACK
-        check_for_step_two()
+        perform_byzantine_step_two()
         return format_response(200)
 
     @app.post('/vote/retreat')
@@ -232,20 +218,20 @@ try:
         global node_id
         propogate_client_vote(RETREAT, node_id)
         votes[node_id] = RETREAT
-        check_for_step_two()
+        perform_byzantine_step_two()
         return format_response(200)
 
     @app.post('/vote/byzantine')
     def client_byzantine_received():
         global node_id, byzantine
-        res = byzantine_behavior.compute_byzantine_vote_round1(tot_nodes - 1, tot_nodes, True)
+        res = byzantine_behavior.compute_byzantine_vote_round1(number_of_nodes - 1, number_of_nodes, True)
         byzantine = True
         votes[node_id] = BYZANTINE
         propogate_byzantine_step_one(res, node_id)
-        check_for_step_two()
+        perform_byzantine_step_two()
         return format_response(200)
 
-    #Propagation step 2
+    #Propagation of Byzantine step 2
     @app.post('/propagate/result/<node_id>')
     def propagation_result_received(node_id):
         json_dict = request.json
@@ -254,12 +240,12 @@ try:
         return format_response(200)
 
 
-    # Propagation step 1
+    # Propagation of Byzantine step 1
     @app.post('/propagate/<vote>/<external_node_id>')
     def propagation_received(vote, external_node_id):
         global node_id
         votes[external_node_id] = vote
-        check_for_step_two()
+        perform_byzantine_step_two()
         return format_response(200)
 
  
@@ -273,10 +259,10 @@ try:
     # ------------------------------------------------------------------------------------------------------
     # EXECUTION
     # ------------------------------------------------------------------------------------------------------
-    # Execute the code
+    # Main function from where execution of the code start
 
     def main():
-        global vessel_list, node_id, app, tot_nodes
+        global vessel_list, node_id, app, number_of_nodes
 
         port = 80
         parser = argparse.ArgumentParser(
@@ -287,7 +273,7 @@ try:
                             type=int, help='The total number of vessels present in the system')
         args = parser.parse_args()
         node_id = args.nid
-        tot_nodes = args.nbv
+        number_of_nodes = args.nbv # Setting number of nodes from the arguments
         vessel_list = dict()
         # We need to write the other vessels IP, based on the knowledge of their number
         for i in range(1, args.nbv+1):

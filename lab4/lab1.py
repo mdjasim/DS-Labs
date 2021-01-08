@@ -15,6 +15,8 @@ from mininet.term import makeTerm, cleanUpScreens # Open xterm from mininet
 from mininet.cli import CLI # Command Line Interface
 import argparse
 import math
+import os
+import random
 #------------------------------------------------------------------------------------------------------
 
 
@@ -29,12 +31,13 @@ class Lab1Topology( Topo ):
     def build(self, nbOfServersPerRegion = 5, nbOfClientsPerRegion = 2, nbOfRegions = 2, **opts):
         # local configuration parameters
         regionalLinkBandwidth = 100 # Mbps
-        regionalLinkLosses = 0.00001 # 1e-5 PER
+        regionalLinkLosses = 0.000001 # 1e-5 PER
         regionalDelay = 10 # ms, delay = RTT/2
         # internet configuration parameters
         globalLinkBandwidth = 1000 # Mbps
-        globalLinkLosses = 0.00001 # 1e-5 PER
-        globalDelay = 50 # ms, delay = RTT/2
+        globalLinkLosses = 0.000001 # 1e-5 PER
+        globalDelay = random.randrange(100,150) # ms, delay = RTT/2
+        print "globalDelay is : ", globalDelay, "ms"
         # arrays
         switches = []
         servers = []
@@ -46,12 +49,12 @@ class Lab1Topology( Topo ):
         for regionId in range(0, nbOfRegions):
             # we create a regional switch
             switches.append(self.addSwitch("regSwitch%d" % regionId))
-            # we add servers/vessels in that region, with a fixed IP
+            # we add servers/nodes in that region, with a fixed IP
             for serverId in range(0, nbOfServersPerRegion):
                 # serverId is a regional Id, we want a global one
                 globalId = regionId*nbOfServersPerRegion+serverId
                 # we create the server
-                servers.append(self.addHost("vessel%d" % (globalId+1), ip=("10.1.0.%d/24" % (globalId+1))))
+                servers.append(self.addHost("node%d" % (globalId+1), ip=("10.1.0.%d/24" % (globalId+1))))
                 # We add link towards the reginal switch
                 self.addLink(switches[regionId], servers[globalId], bw = regionalLinkBandwidth, loss = regionalLinkLosses, delay = "%dms" % regionalDelay)
             # We do the same with clients
@@ -87,7 +90,10 @@ class Lab():
     # Open an xterm and launch a specific command
     def startServer(self, server):
         # Call mininet.term.makeTerm
-        makeTerm(node=server, cmd="python {} --id {} --vessels {}".format(self.pathToServer, server.IP().replace('10.1.0.',''), self.nbOfServersPerRegion*self.nbOfRegions))
+        try:
+            a = makeTerm(node=server, cmd="python {} --id {} --vessels {}".format(self.pathToServer, server.IP().replace('10.1.0.',''), self.nbOfServersPerRegion*self.nbOfRegions))
+        except Exception as e:
+            print e
 #------------------------------------------------------------------------------------------------------
     # run(self)
     # Run the lab 1
@@ -111,7 +117,7 @@ class Lab():
             host.defaultIntf().config(jitter = ("%dms" % localJitter))
         # for each server
         for server in simulation.hosts:
-            if "vessel" in server.name:
+            if "node" in server.name:
                 # We open a xterm and start the server
                 self.startServer(server)
         makeTerm(node=simulation.getNodeByName("client1"), cmd="firefox")
@@ -120,8 +126,9 @@ class Lab():
         # Once the CLI is closed (with exit), we can stop the simulation
         print "Stopping the simulation NOW!"
         # We close the xterms (mininet.term.cleanUpScreens)
-        cleanUpScreens()
+        #cleanUpScreens()
         simulation.stop()
+        os.system("killall xterm")
 #------------------------------------------------------------------------------------------------------
 
 
